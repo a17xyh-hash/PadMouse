@@ -6,6 +6,7 @@ public final class Dbg {
     public static volatile boolean alive = false;
     public static volatile String modeText = "—";
     public static volatile String padText = "—";
+    public static volatile String rootText = "—";
     public static volatile String key = "—";
     public static volatile String axis = "—";
     public static volatile String gesture = "—";
