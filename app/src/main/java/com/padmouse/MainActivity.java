@@ -53,6 +53,7 @@ public class MainActivity extends Activity {
     private TextView tabAccess, tabRoot, modeDesc;
     private TextView tabDpadPage, tabDpadScroll, tabStickCircle, tabStickPush;
     private TextView tabPageMatch, tabPageNav;
+    private TextView tabAnchorPointer, tabAnchorCenter;
     private TextView stService, stRoot, stInject, stStick, stPad, dbgTv;
     private Switch swOn, swInv, swHs, swCursor, swHint;
     private boolean syncing = false;
@@ -187,7 +188,7 @@ public class MainActivity extends Activity {
         swHs = addSwitch(card, "十字键左右横滚", "浏览器/看图时左右滑",
                 true, Prefs.K_HS);
         swCursor = addSwitch(card, "光标模式（当鼠标）",
-                "START 切换：右摇杆移动指针，A 点击，X 长按，B 返回",
+                "START 切换：A 点击，X 长按，B 返回（指针本来就会显示，开了才响应按键）",
                 false, Prefs.K_CURSOR_ON);
         swHint = addSwitch(card, "操作提示浮条", "手柄切换模式时在屏幕上提示一下",
                 true, Prefs.K_HINT);
@@ -218,10 +219,17 @@ public class MainActivity extends Activity {
         tabPageMatch = p[0];
         tabPageNav = p[1];
 
-        TextView tip = tv("默认：按 ← 手指往左滑、按 → 手指往右滑（方向跟按键一致），"
-                + "↑ / ↓ 仍然是上下滚动。\n"
-                + "如果阅读器里翻反了，把「翻页方向」切到「按左=上一页」即可。\n"
-                + "画圈：顺时针往下、逆时针往上（转 60° 滚一格，可配合「摇杆速度」调灵敏度）。", 10.5f, HINT, false);
+        TextView[] an = seg(card, "滚动基准",
+                Prefs.K_ANCHOR,
+                new String[]{Prefs.ANCHOR_POINTER, Prefs.ANCHOR_CENTER},
+                new String[]{"指针位置", "屏幕中心"});
+        tabAnchorPointer = an[0];
+        tabAnchorCenter = an[1];
+
+        TextView tip = tv("滚动基准 = 指针位置（默认）：屏幕上那个小圆点在哪，滚动/翻页就在哪发生，"
+                + "右摇杆移动它。想滚右边的列表就先把圆点移过去。\n"
+                + "选「屏幕中心」则还是以屏幕正中为基准（不显示圆点）。\n"
+                + "翻页方向：按 ← 手指往左滑、按 → 手指往右滑，↑/↓ 上下滚动。", 10.5f, HINT, false);
         tip.setPadding(0, dp(12), 0, 0);
         tip.setLineSpacing(dp(3), 1f);
         card.addView(tip);
@@ -461,6 +469,8 @@ public class MainActivity extends Activity {
         styleTab(tabStickPush, Prefs.STICK_PUSH.equals(Prefs.stickMode(this)));
         styleTab(tabPageMatch, Prefs.PAGE_DIR_MATCH.equals(Prefs.pageDir(this)));
         styleTab(tabPageNav, Prefs.PAGE_DIR_NAV.equals(Prefs.pageDir(this)));
+        styleTab(tabAnchorPointer, Prefs.ANCHOR_POINTER.equals(Prefs.anchor(this)));
+        styleTab(tabAnchorCenter, Prefs.ANCHOR_CENTER.equals(Prefs.anchor(this)));
         modeDesc.setText(rootMode ? DESC_ROOT : DESC_ACCESS);
     }
 
