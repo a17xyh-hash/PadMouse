@@ -66,6 +66,10 @@ public class PadMouseService extends AccessibilityService
     // 画圈检测
     private float circleAcc, prevAngle;
     private boolean angleValid;
+
+    // 十字键（HAT）状态
+    private int hatX, hatY;
+    private boolean sawRealDpadKeys;
     private volatile boolean destroyed;
 
     // ------------------------------------------------------------ 生命周期
@@ -299,7 +303,12 @@ public class PadMouseService extends AccessibilityService
     protected boolean onKeyEvent(KeyEvent e) {
         if (e == null) return false;
         if (Prefs.mode(this).equals(Prefs.MODE_ROOT)) return false;   // root 模式走 evdev，避免重复
-        return handlePadKey(e.getKeyCode(), e.getAction() == KeyEvent.ACTION_DOWN, e.getRepeatCount());
+        int code = e.getKeyCode();
+        if (code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN
+                || code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT) {
+            sawRealDpadKeys = true;
+        }
+        return handlePadKey(code, e.getAction() == KeyEvent.ACTION_DOWN, e.getRepeatCount());
     }
 
     private static boolean isPadKey(int code) {
@@ -426,17 +435,58 @@ public class PadMouseService extends AccessibilityService
         float arz = e.getAxisValue(MotionEvent.AXIS_RZ);
         float arx = e.getAxisValue(MotionEvent.AXIS_RX);
         float ary = e.getAxisValue(MotionEvent.AXIS_RY);
+
+        // 十字键在很多手柄上是 ABS_HAT0X/Y（轴），不是按键，也**不是**左摇杆。
+        // 以前把它并进左摇杆，结果按左右完全没反应；现在单独转成方向键。
         float hx = e.getAxisValue(MotionEvent.AXIS_HAT_X);
         float hy = e.getAxisValue(MotionEvent.AXIS_HAT_Y);
+        updateHat(0, hx > 0.5f ? 1 : (hx < -0.5f ? -1 : 0));
+        updateHat(1, hy > 0.5f ? 1 : (hy < -0.5f ? -1 : 0));
 
-        if (Math.abs(ax) < 0.03f && Math.abs(hx) > 0.4f) ax = hx;
-        if (Math.abs(ay) < 0.03f && Math.abs(hy) > 0.4f) ay = hy;
         if (Math.abs(az) < 0.03f && Math.abs(arz) < 0.03f
                 && (Math.abs(arx) > 0.03f || Math.abs(ary) > 0.03f)) {
             az = arx;
             arz = ary;
         }
         setAxes(ax, ay, az, arz);
+        Dbg.axis = String.format(Locale.US,
+                "LX %+.2f  LY %+.2f  RX %+.2f  RY %+.2f  HAT %+d,%+d",
+                lx, ly, rx, ry, hatX, hatY);
+    }
+
+    /**
+     * HAT -> 方向键。带边沿检测（只在该方向变化时发一次按下/抬起）。
+     * 如果系统本身已经把这个十字键转成了方向键事件，就不再重复触发。
+     */
+    private void updateHat(int axis, int v) {
+        int cur = axis == 0 ? hatX : hatY;
+        if (v == cur) return;
+        // 这个手柄的十字键要是本身就发方向键事件，就绝不再用 HAT 补一遍（否则翻两页）
+        if (!sawRealDpadKeys) {
+            if (cur != 0) emitHatKey(axis, cur, false);
+            if (v != 0) emitHatKey(axis, v, true);
+        }
+        if (axis == 0) hatX = v;
+        else hatY = v;
+    }
+
+    private void emitHatKey(int axis, int v, boolean down) {
+        int kc = axis == 0
+                ? (v < 0 ? KeyEvent.KEYCODE_DPAD_LEFT : KeyEvent.KEYCODE_DPAD_RIGHT)
+                : (v < 0 ? KeyEvent.KEYCODE_DPAD_UP : KeyEvent.KEYCODE_DPAD_DOWN);
+        handlePadKey(kc, down, 0);
+    }
+
+    /** 手柄拔了/事件断了，别让方向键卡在"按下"。 */
+    private void releaseHat() {
+        if (hatX != 0) {
+            emitHatKey(0, hatX, false);
+            hatX = 0;
+        }
+        if (hatY != 0) {
+            emitHatKey(1, hatY, false);
+            hatY = 0;
+        }
     }
 
     private void setAxes(float ax, float ay, float bx, float by) {
@@ -481,10 +531,11 @@ public class PadMouseService extends AccessibilityService
 
         long now = System.currentTimeMillis();
         if (now - lastMotionAt > 1200) {
-            // 手柄断连或一直没事件：归零，避免"自己一直滚"
+            // 手柄断连或一直没事件：归零，避免"自己一直滚"、方向键卡住
             lx = ly = rx = ry = 0;
             circleAcc = 0;
             angleValid = false;
+            releaseHat();
         }
 
         float dz = Prefs.deadzone(this);
