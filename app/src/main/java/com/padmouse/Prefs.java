@@ -23,6 +23,13 @@ public final class Prefs {
     public static final String K_CURSOR    = "cursor_speed"; // 光标移动速度
     public static final String K_CURSOR_ON = "cursor_on";    // 光标模式(当鼠标)
     public static final String K_HINT      = "hint";         // 操作提示浮条
+    public static final String K_DPAD_MODE = "dpad_mode";    // 十字键：page 翻页 / scroll 滚动
+    public static final String K_STICK_MODE = "stick_mode";  // 左摇杆：circle 画圈 / push 推杆
+
+    public static final String DPAD_PAGE = "page";
+    public static final String DPAD_SCROLL = "scroll";
+    public static final String STICK_CIRCLE = "circle";
+    public static final String STICK_PUSH = "push";
 
     private Prefs() {}
 
@@ -58,6 +65,8 @@ public final class Prefs {
     public static boolean invert(Context c)    { return b(c, K_INVERT, false); }
     public static boolean hscroll(Context c)   { return b(c, K_HS, true); }
     public static boolean cursorMode(Context c){ return b(c, K_CURSOR_ON, false); }
+    public static String dpadMode(Context c)   { return sp(c).getString(K_DPAD_MODE, DPAD_PAGE); }
+    public static String stickMode(Context c)  { return sp(c).getString(K_STICK_MODE, STICK_CIRCLE); }
     public static float step(Context c)        { return f(c, K_STEP, 0.25f); }
     public static float swipeMs(Context c)     { return f(c, K_SWIPE, 260f); }
     public static float deadzone(Context c)    { return f(c, K_DEADZONE, 0.22f); }
