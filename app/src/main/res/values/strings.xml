@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">手柄鼠标</string>
+    <string name="service_label">手柄鼠标</string>
+    <string name="service_summary">用游戏手柄滚动屏幕 / 当鼠标</string>
+    <string name="service_desc">把游戏手柄变成滚轮和鼠标：十字键上下滚动页面，摇杆顺滑滚屏，START 切换光标模式。本服务只读取手柄按键，不上传任何数据。</string>
+</resources>
