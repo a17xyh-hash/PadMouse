@@ -1,6 +1,9 @@
 package com.padmouse;
 
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.graphics.Typeface;
@@ -39,14 +42,16 @@ public class MainActivity extends Activity {
                     + "· 摇杆需要 Android 14 及以上（系统才允许无障碍读摇杆），否则只能按键滚动";
 
     private static final String DESC_ROOT =
-            "需要 su 授权。直接读 /dev/input 的原始事件，任何 Android 版本都能用摇杆，\n"
-                    + "游戏/浏览器占着焦点也能读到。注入优先走无障碍手势，失败时自动退回 input。";
+            "需要 su 授权（SukiSU / KernelSU / APatch / Magisk 都行）。直接读 /dev/input 的原始事件，\n"
+                    + "任何 Android 版本都能用摇杆，游戏/浏览器占着焦点也能读到。\n"
+                    + "注入优先走无障碍手势，失败时自动退回 input；读不到会自动切回无障碍模式。";
 
     private final Handler ui = new Handler(Looper.getMainLooper());
 
     private TextView tabAccess, tabRoot, modeDesc;
     private TextView tabDpadPage, tabDpadScroll, tabStickCircle, tabStickPush;
-    private TextView stService, stRoot, stPad, stStick, dbgTv;
+    private TextView tabPageMatch, tabPageNav;
+    private TextView stService, stRoot, stInject, stStick, stPad, dbgTv;
     private Switch swOn, swInv, swHs, swCursor, swHint;
     private boolean syncing = false;
 
@@ -147,6 +152,7 @@ public class MainActivity extends Activity {
 
         stService = addRow(card, "无障碍服务", "—");
         stRoot = addRow(card, "Root 读取", "—");
+        stInject = addRow(card, "Root 注入", "—");
         stStick = addRow(card, "摇杆通道", "—");
         stPad = addRow(card, "手柄", "—");
 
@@ -202,8 +208,17 @@ public class MainActivity extends Activity {
         tabStickCircle = s[0];
         tabStickPush = s[1];
 
-        TextView tip = tv("画圈：顺时针往下、逆时针往上（转 60° 滚一格，可配合「摇杆速度」调灵敏度）。\n"
-                + "推杆：跟以前一样，推得越深滚得越快。", 10.5f, HINT, false);
+        TextView[] p = seg(card, "翻页方向（十字键左右）",
+                Prefs.K_PAGE_DIR,
+                new String[]{Prefs.PAGE_DIR_MATCH, Prefs.PAGE_DIR_NAV},
+                new String[]{"按左就往左滑", "按左=上一页"});
+        tabPageMatch = p[0];
+        tabPageNav = p[1];
+
+        TextView tip = tv("默认：按 ← 手指往左滑、按 → 手指往右滑（方向跟按键一致），"
+                + "↑ / ↓ 仍然是上下滚动。\n"
+                + "如果阅读器里翻反了，把「翻页方向」切到「按左=上一页」即可。\n"
+                + "画圈：顺时针往下、逆时针往上（转 60° 滚一格，可配合「摇杆速度」调灵敏度）。", 10.5f, HINT, false);
         tip.setPadding(0, dp(12), 0, 0);
         tip.setLineSpacing(dp(3), 1f);
         card.addView(tip);
@@ -270,10 +285,10 @@ public class MainActivity extends Activity {
                 }
             }
         });
-        Button t2 = button("测试 su", false);
+        Button t2 = button("Root 诊断", false);
         t2.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
-                testRoot();
+                diagnose();
             }
         });
         row.addView(t1, new LinearLayout.LayoutParams(0, dp(42), 1f));
@@ -292,9 +307,9 @@ public class MainActivity extends Activity {
         LinearLayout card = card(col);
         card.addView(tv("默认映射", 12f, DIM, true));
         TextView t = tv(
-                "十字键 ← / ↑      上一页（翻页模式）\n"
-                        + "十字键 → / ↓      下一页（翻页模式）\n"
-                        + "十字键（滚动模式） 上下滚动 / 左右横滚\n"
+                "十字键 ←         手指往左滑（翻页模式）\n"
+                        + "十字键 →         手指往右滑（翻页模式）\n"
+                        + "十字键 ↑ / ↓      上下滚动\n"
                         + "L1 / R1            大步滚动（约 2 倍）\n"
                         + "L2 / R2 / L3 / R3  大步滚动\n"
                         + "左摇杆             画圈 = 滚轮：顺时针往下、逆时针往上\n"
@@ -331,9 +346,14 @@ public class MainActivity extends Activity {
             String p = Dbg.padText;
             stRoot.setText(p == null || p.equals("—") ? (alive ? "准备中…" : "服务未启动") : p);
             stRoot.setTextColor(p != null && p.startsWith("⚠") ? WARN : DIM);
+            String inj = Dbg.rootText;
+            stInject.setText(inj == null || inj.equals("—") ? "准备中…" : inj);
+            stInject.setTextColor(inj != null && (inj.contains("失败") || inj.contains("不可用")) ? WARN : DIM);
         } else {
             stRoot.setText("未使用");
             stRoot.setTextColor(HINT);
+            stInject.setText("未使用");
+            stInject.setTextColor(HINT);
         }
 
         if (rootMode) {
@@ -367,6 +387,8 @@ public class MainActivity extends Activity {
         styleTab(tabDpadScroll, Prefs.DPAD_SCROLL.equals(Prefs.dpadMode(this)));
         styleTab(tabStickCircle, Prefs.STICK_CIRCLE.equals(Prefs.stickMode(this)));
         styleTab(tabStickPush, Prefs.STICK_PUSH.equals(Prefs.stickMode(this)));
+        styleTab(tabPageMatch, Prefs.PAGE_DIR_MATCH.equals(Prefs.pageDir(this)));
+        styleTab(tabPageNav, Prefs.PAGE_DIR_NAV.equals(Prefs.pageDir(this)));
         modeDesc.setText(rootMode ? DESC_ROOT : DESC_ACCESS);
     }
 
@@ -418,23 +440,46 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void testRoot() {
-        toast("正在测试 su…");
+    private void diagnose() {
+        final TextView body = tv("正在检测…（如果弹出 root 授权，请点允许）", 11f, TXT, false);
+        body.setTypeface(Typeface.MONOSPACE);
+        body.setTextIsSelectable(true);
+        body.setPadding(dp(16), dp(12), dp(16), dp(12));
+        body.setLineSpacing(dp(2), 1f);
+
+        ScrollView sc = new ScrollView(this);
+        sc.addView(body);
+
+        final AlertDialog dlg = new AlertDialog.Builder(this)
+                .setTitle("Root 诊断")
+                .setView(sc)
+                .setPositiveButton("复制", null)
+                .setNegativeButton("关闭", null)
+                .create();
+        dlg.show();
+        dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                try {
+                    ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    cm.setPrimaryClip(ClipData.newPlainText("padmouse", body.getText()));
+                    toast("已复制");
+                } catch (Throwable t) {
+                    toast("复制失败：" + t.getMessage());
+                }
+            }
+        });
+
         new Thread(new Runnable() {
             @Override
             public void run() {
-                final RootShell s = new RootShell();
-                final boolean ok = s.open();
-                final String msg = ok ? "root 可用 ✅" : "root 不可用：" + s.error();
-                s.close();
+                final String report = RootProbe.run();
                 runOnUiThread(new Runnable() {
                     public void run() {
-                        toast(msg);
-                        Dbg.note(msg);
+                        body.setText(report);
                     }
                 });
             }
-        }, "pm-test-su").start();
+        }, "pm-probe").start();
     }
 
     private void toast(String s) {
