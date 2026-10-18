@@ -539,7 +539,7 @@ public class PadMouseService extends AccessibilityService
         }
 
         float dz = Prefs.deadzone(this);
-        if (Prefs.cursorMode(this)) moveCursor(dz);
+        if (pointerActive()) moveCursor(dz);
 
         boolean circleMode = Prefs.STICK_CIRCLE.equals(Prefs.stickMode(this));
         if (circleMode) circleScroll(dz);
@@ -695,10 +695,16 @@ public class PadMouseService extends AccessibilityService
     }
 
     private void dispatchPage(float fingerDir) {
-        float cx = sw / 2f, cy = sh / 2f;
-        float half = Math.max(0.06f, Math.min(0.42f, Prefs.pageTravel(PadMouseService.this) / 2f)) * sw;
+        float[] a = anchorPoint();
+        float cy = Math.max(sh * 0.10f, Math.min(sh * 0.90f, a[1]));
+        float cx = a[0];
+        float half = Math.max(0.04f, Math.min(0.42f, Prefs.pageTravel(PadMouseService.this) / 2f)) * sw;
+        half = Math.min(half, Math.min(cx - sw * 0.04f, sw * 0.96f - cx));
+        if (half < sw * 0.04f) {           // 指针贴边，退回中心
+            cx = sw / 2f;
+            half = Math.min(0.42f, Math.max(0.04f, Prefs.pageTravel(PadMouseService.this) / 2f)) * sw;
+        }
         int ms = Math.max(120, (int) Prefs.swipeMs(PadMouseService.this));
-        // 起止点都在屏幕内：以中心为轴对称展开
         float x1 = cx - fingerDir * half;
         float x2 = cx + fingerDir * half;
         // 插几个中间点，避免某些 ROM 把两点直线当成 fling
@@ -727,17 +733,39 @@ public class PadMouseService extends AccessibilityService
      * @param travel 手指移动的总距离（px）
      */
     private void swipe(float dx, float dy, float travel) {
-        float cx = sw / 2f, cy = sh / 2f;
+        float[] a = anchorPoint();
+        float cx = a[0], cy = a[1];
         float half = travel / 2f;
         if (dy != 0) {
-            float maxHalf = Math.min(cy - sh * 0.10f, sh * 0.90f - cy);
-            half = Math.min(half, Math.max(60f, maxHalf));
+            float top = sh * 0.06f, bottom = sh * 0.94f;
+            half = Math.min(half, Math.min(cy - top, bottom - cy));
+            if (half < sh * 0.03f) {                 // 指针贴边了，退回屏幕中心
+                cy = sh / 2f;
+                half = Math.min(travel / 2f, Math.min(cy - top, bottom - cy));
+            }
             doSwipe(cx, cy + dy * half, cx, cy - dy * half, (int) Prefs.swipeMs(this));
         } else if (dx != 0) {
-            float maxHalf = Math.min(cx - sw * 0.10f, sw * 0.90f - cx);
-            half = Math.min(half, Math.max(60f, maxHalf));
+            float left = sw * 0.05f, right = sw * 0.95f;
+            half = Math.min(half, Math.min(cx - left, right - cx));
+            if (half < sw * 0.03f) {
+                cx = sw / 2f;
+                half = Math.min(travel / 2f, Math.min(cx - left, right - cx));
+            }
             doSwipe(cx + dx * half, cy, cx - dx * half, cy, (int) Prefs.swipeMs(this));
         }
+    }
+
+    /** 滚动/翻页的基准点：默认用指针位置，没开指针就用屏幕中心。 */
+    private float[] anchorPoint() {
+        if (pointerActive() && cursor != null) {
+            int[] p = cursor.pos();
+            return new float[]{p[0], p[1]};
+        }
+        return new float[]{sw / 2f, sh / 2f};
+    }
+
+    private boolean pointerActive() {
+        return Prefs.cursorMode(this) || Prefs.ANCHOR_POINTER.equals(Prefs.anchor(this));
     }
 
     private void doSwipe(float x1, float y1, float x2, float y2, int ms) {
@@ -820,9 +848,9 @@ public class PadMouseService extends AccessibilityService
     // ------------------------------------------------------------ 浮层
 
     private void refreshOverlays() {
-        boolean cm = Prefs.cursorMode(this) && Prefs.enabled(this);
+        boolean show = pointerActive() && Prefs.enabled(this);
         if (cursor != null) {
-            if (cm) cursor.show();
+            if (show) cursor.show();
             else cursor.hide();
         }
     }
@@ -910,6 +938,10 @@ public class PadMouseService extends AccessibilityService
                             ? "已切到 Root 模式" : "已切到无障碍模式");
                 } else if (Prefs.K_CURSOR_ON.equals(key)) {
                     refreshOverlays();
+                } else if (Prefs.K_ANCHOR.equals(key)) {
+                    refreshOverlays();
+                    showHint(Prefs.ANCHOR_POINTER.equals(Prefs.anchor(PadMouseService.this))
+                            ? "滚动基准：指针位置（右摇杆移动）" : "滚动基准：屏幕中心");
                 } else if (Prefs.K_ENABLED.equals(key)) {
                     applyServiceInfo();     // 暂停时把摇杆还给游戏
                     refreshOverlays();
