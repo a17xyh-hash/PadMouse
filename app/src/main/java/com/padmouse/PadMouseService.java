@@ -155,9 +155,6 @@ public class PadMouseService extends AccessibilityService
             AccessibilityServiceInfo info = getServiceInfo();
             if (info != null) {
                 info.flags |= AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS;
-                if (Build.VERSION.SDK_INT >= 34) {
-                    info.flags |= AccessibilityServiceInfo.FLAG_SEND_MOTION_EVENTS;
-                }
                 setServiceInfo(info);
             }
         } catch (Throwable t) {
