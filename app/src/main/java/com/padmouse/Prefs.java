@@ -25,6 +25,7 @@ public final class Prefs {
     public static final String K_HINT      = "hint";         // 操作提示浮条
     public static final String K_DPAD_MODE = "dpad_mode";    // 十字键：page 翻页 / scroll 滚动
     public static final String K_PAGE_DIR  = "page_dir";     // 翻页方向：dir 跟着按键 / nav 上一页-下一页
+    public static final String K_PAGE_TRAVEL = "page_travel"; // 翻页时手指移动的屏幕宽度比例
     public static final String K_STICK_MODE = "stick_mode";  // 左摇杆：circle 画圈 / push 推杆
 
     public static final String DPAD_PAGE = "page";
@@ -70,9 +71,10 @@ public final class Prefs {
     public static boolean cursorMode(Context c){ return b(c, K_CURSOR_ON, false); }
     public static String dpadMode(Context c)   { return sp(c).getString(K_DPAD_MODE, DPAD_PAGE); }
     public static String pageDir(Context c)    { return sp(c).getString(K_PAGE_DIR, PAGE_DIR_MATCH); }
+    public static float pageTravel(Context c) { return f(c, K_PAGE_TRAVEL, 0.30f); }
     public static String stickMode(Context c)  { return sp(c).getString(K_STICK_MODE, STICK_CIRCLE); }
     public static float step(Context c)        { return f(c, K_STEP, 0.25f); }
-    public static float swipeMs(Context c)     { return f(c, K_SWIPE, 260f); }
+    public static float swipeMs(Context c)     { return f(c, K_SWIPE, 300f); }
     public static float deadzone(Context c)    { return f(c, K_DEADZONE, 0.22f); }
     public static float stickSpeed(Context c)  { return f(c, K_STICK, 1.0f); }
     public static float cursorSpeed(Context c) { return f(c, K_CURSOR, 1.0f); }
