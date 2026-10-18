@@ -21,6 +21,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.CompoundButton;
+import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
@@ -47,6 +48,7 @@ public class MainActivity extends Activity {
                     + "注入优先走无障碍手势，失败时自动退回 input；读不到会自动切回无障碍模式。";
 
     private final Handler ui = new Handler(Looper.getMainLooper());
+    private ScrollView rootScroll;
 
     private TextView tabAccess, tabRoot, modeDesc;
     private TextView tabDpadPage, tabDpadScroll, tabStickCircle, tabStickPush;
@@ -61,6 +63,7 @@ public class MainActivity extends Activity {
         ScrollView sc = new ScrollView(this);
         sc.setFillViewport(true);
         sc.setBackgroundColor(BG);
+        rootScroll = sc;
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
         col.setPadding(dp(16), dp(20), dp(16), dp(30));
@@ -261,7 +264,8 @@ public class MainActivity extends Activity {
     private void feelCard(LinearLayout col) {        LinearLayout card = card(col);
         card.addView(tv("手感", 12f, DIM, true));
         addSlider(card, "滚动步长", Prefs.K_STEP, 0.05f, 0.60f, 0.25f, "pct");
-        addSlider(card, "滑动时长", Prefs.K_SWIPE, 80f, 400f, 260f, "ms");
+        addSlider(card, "滑动时长", Prefs.K_SWIPE, 80f, 1000f, 300f, "ms");
+        addSlider(card, "翻页距离", Prefs.K_PAGE_TRAVEL, 0.08f, 0.80f, 0.30f, "pct");
         addSlider(card, "摇杆死区", Prefs.K_DEADZONE, 0.05f, 0.50f, 0.22f, "pct");
         addSlider(card, "摇杆速度", Prefs.K_STICK, 0.3f, 3.0f, 1.0f, "x");
         addSlider(card, "光标速度", Prefs.K_CURSOR, 0.3f, 2.5f, 1.0f, "x");
@@ -271,36 +275,104 @@ public class MainActivity extends Activity {
         LinearLayout card = card(col);
         card.addView(tv("测试 / 诊断", 12f, DIM, true));
 
+        // 横向测试条：点"测试左滑/右滑"后这里会跟着滚，能证明手势真的发出去了
+        final HorizontalScrollView hs = new HorizontalScrollView(this);
+        hs.setHorizontalScrollBarEnabled(false);
+        LinearLayout strip = new LinearLayout(this);
+        strip.setOrientation(LinearLayout.HORIZONTAL);
+        for (int i = 1; i <= 6; i++) {
+            TextView t = tv("第 " + i + " 页", 14, TXT, true);
+            t.setGravity(Gravity.CENTER);
+            GradientDrawable g = new GradientDrawable();
+            g.setColor(i == 1 ? 0xFF24405F : 0xFF1C2431);
+            g.setCornerRadius(dp(12));
+            g.setStroke(dp(1), LINE);
+            t.setBackground(g);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(132), dp(62));
+            lp.rightMargin = dp(8);
+            strip.addView(t, lp);
+        }
+        hs.addView(strip);
+        LinearLayout.LayoutParams hslp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(74));
+        hslp.topMargin = dp(12);
+        card.addView(hs, hslp);
+
+        TextView tip = tv("上面是横滑测试区。按下面的按钮或手柄 ←/→，它应该跟着滚；\n"
+                + "这里会动 = 手势正常发出（目标 App 不动就是它不吃横滑）；\n"
+                + "这里不动 = 手势没发出去，看最下面的「注入」那行。", 10.5f, HINT, false);
+        tip.setPadding(0, dp(10), 0, 0);
+        tip.setLineSpacing(dp(3), 1f);
+        card.addView(tip);
+
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setPadding(0, dp(12), 0, 0);
 
-        Button t1 = button("试一下滚动", true);
-        t1.setOnClickListener(new View.OnClickListener() {
+        Button bLeft = button("测试左滑", true);
+        bLeft.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
-                if (PadMouseService.INSTANCE == null) {
-                    toast("先开启无障碍服务");
-                } else {
-                    PadMouseService.INSTANCE.testScroll();
-                }
+                testPage(hs, -1);
             }
         });
-        Button t2 = button("Root 诊断", false);
-        t2.setOnClickListener(new View.OnClickListener() {
+        Button bRight = button("测试右滑", true);
+        bRight.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                testPage(hs, 1);
+            }
+        });
+        row.addView(bLeft, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(0, dp(42), 1f);
+        lp2.leftMargin = dp(8);
+        row.addView(bRight, lp2);
+        card.addView(row);
+
+        LinearLayout row2 = new LinearLayout(this);
+        row2.setOrientation(LinearLayout.HORIZONTAL);
+        row2.setPadding(0, dp(8), 0, 0);
+
+        Button bScroll = button("试一下滚动", false);
+        bScroll.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                if (PadMouseService.INSTANCE == null) toast("先开启无障碍服务");
+                else PadMouseService.INSTANCE.testScroll();
+            }
+        });
+        Button bDiag = button("Root 诊断", false);
+        bDiag.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 diagnose();
             }
         });
-        row.addView(t1, new LinearLayout.LayoutParams(0, dp(42), 1f));
-        LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(0, dp(42), 1f);
-        lp2.leftMargin = dp(8);
-        row.addView(t2, lp2);
-        card.addView(row);
+        row2.addView(bScroll, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        LinearLayout.LayoutParams lp3 = new LinearLayout.LayoutParams(0, dp(42), 1f);
+        lp3.leftMargin = dp(8);
+        row2.addView(bDiag, lp3);
+        card.addView(row2);
 
         dbgTv = tv("—", 11f, HINT, false);
         dbgTv.setPadding(0, dp(14), 0, 0);
         dbgTv.setLineSpacing(dp(3), 1f);
         card.addView(dbgTv);
+    }
+
+    /** 先把测试条滚到屏幕中间，再派发手势，这样一定滑在它身上。 */
+    private void testPage(View strip, final int dir) {
+        if (PadMouseService.INSTANCE == null) {
+            toast("先开启无障碍服务");
+            return;
+        }
+        final int[] loc = new int[2];
+        strip.getLocationOnScreen(loc);
+        int screenH = getResources().getDisplayMetrics().heightPixels;
+        int target = rootScroll.getScrollY() + loc[1] + strip.getHeight() / 2 - screenH / 2
+                + getWindow().getDecorView().getTop();
+        rootScroll.smoothScrollTo(0, Math.max(0, target));
+        ui.postDelayed(new Runnable() {
+            public void run() {
+                if (PadMouseService.INSTANCE != null) PadMouseService.INSTANCE.testPage(dir);
+            }
+        }, 420);
     }
 
     private void mapCard(LinearLayout col) {
