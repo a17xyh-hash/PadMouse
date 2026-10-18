@@ -77,6 +77,7 @@ public final class RootPad {
 
     private float lx, ly, rx, ry;
     private int hatX, hatY;      // 十字键常走 ABS_HAT0X/Y，要自己转成按键事件
+    private boolean sawDpadKeys;
     private volatile long lastEventAt;
 
     public RootPad(Listener l) {
@@ -241,6 +242,10 @@ public final class RootPad {
             int kc = androidKey(code);
             if (kc != 0) {
                 lastEventAt = System.currentTimeMillis();
+                if (kc == KeyEvent.KEYCODE_DPAD_UP || kc == KeyEvent.KEYCODE_DPAD_DOWN
+                        || kc == KeyEvent.KEYCODE_DPAD_LEFT || kc == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                    sawDpadKeys = true;   // 这个手柄的十字键走按键，HAT 就别再补一遍
+                }
                 Dbg.key = KeyNames.of(kc) + (value > 0 ? " ↓" : " ↑");
                 Dbg.keyCount++;
                 listener.onPadKey(kc, value > 0);
@@ -271,17 +276,14 @@ public final class RootPad {
      * 这里把它转成真正的 DPAD 按键按下/抬起，后面的映射逻辑才能共用。
      */
     private void setHat(int axis, int v) {
-        if (axis == 0) {
-            if (v == hatX) return;
-            if (hatX != 0) emitHat(0, hatX, false);
-            hatX = v;
-            if (v != 0) emitHat(0, v, true);
-        } else {
-            if (v == hatY) return;
-            if (hatY != 0) emitHat(1, hatY, false);
-            hatY = v;
-            if (v != 0) emitHat(1, v, true);
+        int cur = axis == 0 ? hatX : hatY;
+        if (v == cur) return;
+        if (!sawDpadKeys) {
+            if (cur != 0) emitHat(axis, cur, false);
+            if (v != 0) emitHat(axis, v, true);
         }
+        if (axis == 0) hatX = v;
+        else hatY = v;
     }
 
     private void emitHat(int axis, int v, boolean down) {
