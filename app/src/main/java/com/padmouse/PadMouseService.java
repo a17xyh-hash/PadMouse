@@ -60,6 +60,10 @@ public class PadMouseService extends AccessibilityService
 
     private volatile float lx, ly, rx, ry;
     private long lastMotionAt, lastScrollTick, lastHScrollTick, lastGestureAt;
+
+    // 画圈检测
+    private float circleAcc, prevAngle;
+    private boolean angleValid;
     private volatile boolean destroyed;
 
     // ------------------------------------------------------------ 生命周期
@@ -298,16 +302,17 @@ public class PadMouseService extends AccessibilityService
         float step = Prefs.step(this);
         boolean inv = Prefs.invert(this);
         boolean cursorOn = Prefs.cursorMode(this);
+        boolean pageMode = Prefs.DPAD_PAGE.equals(Prefs.dpadMode(this));
 
         switch (code) {
             case KeyEvent.KEYCODE_DPAD_UP:
-                return scrollV(inv ? 1 : -1, step);
+                return pageMode ? page(-1) : scrollV(inv ? 1 : -1, step);
             case KeyEvent.KEYCODE_DPAD_DOWN:
-                return scrollV(inv ? -1 : 1, step);
+                return pageMode ? page(1) : scrollV(inv ? -1 : 1, step);
             case KeyEvent.KEYCODE_DPAD_LEFT:
-                return scrollH(inv ? 1 : -1, step);
+                return pageMode ? page(-1) : scrollH(inv ? 1 : -1, step);
             case KeyEvent.KEYCODE_DPAD_RIGHT:
-                return scrollH(inv ? -1 : 1, step);
+                return pageMode ? page(1) : scrollH(inv ? -1 : 1, step);
 
             case KeyEvent.KEYCODE_BUTTON_L1:
             case KeyEvent.KEYCODE_BUTTON_L2:
@@ -423,22 +428,32 @@ public class PadMouseService extends AccessibilityService
     };
 
     private void onTick() {
-        if (!Prefs.enabled(this)) return;
+        if (!Prefs.enabled(this)) {
+            circleAcc = 0;
+            angleValid = false;
+            return;
+        }
 
         long now = System.currentTimeMillis();
         if (now - lastMotionAt > 1200) {
             // 手柄断连或一直没事件：归零，避免"自己一直滚"
             lx = ly = rx = ry = 0;
+            circleAcc = 0;
+            angleValid = false;
         }
 
         float dz = Prefs.deadzone(this);
         if (Prefs.cursorMode(this)) moveCursor(dz);
+
+        boolean circleMode = Prefs.STICK_CIRCLE.equals(Prefs.stickMode(this));
+        if (circleMode) circleScroll(dz);
 
         if (inflight.get() > 0) {
             // 手势回调偶尔会丢（比如目标应用被冻结），超时兜底，别把整个通道锁死
             if (now - lastGestureAt > 4000) inflight.set(0);
             return;
         }
+        if (circleMode) return;      // 画圈模式下不再按"推杆方向"滚
 
         float a = Math.abs(ly);
         if (a > dz) {
@@ -466,8 +481,43 @@ public class PadMouseService extends AccessibilityService
         }
     }
 
-    private void moveCursor(float dz) {
-        if (cursor == null) return;
+    /**
+     * 摇杆画圈 = 拨轮：顺时针（角度增大）往下滚，逆时针往上滚。
+     * 累计转够一格（默认 60°，可被"摇杆速度"整除）才滚一小步，避免抖动误触。
+     */
+    private void circleScroll(float dz) {
+        float mag = (float) Math.hypot(lx, ly);
+        if (mag <= dz) {
+            angleValid = false;
+            circleAcc = 0;
+            return;
+        }
+        float ang = (float) Math.atan2(ly, lx);
+        if (!angleValid) {
+            prevAngle = ang;
+            angleValid = true;
+            return;
+        }
+        float d = ang - prevAngle;
+        while (d > Math.PI) d -= 2 * Math.PI;
+        while (d < -Math.PI) d += 2 * Math.PI;
+        prevAngle = ang;
+        if (Math.abs(d) > 1.2f) return;      // 回中/猛甩造成的跳变，不算转动
+
+        circleAcc += d;
+        float perStep = (float) (Math.PI / 3) / Math.max(0.3f, Math.min(3f, Prefs.stickSpeed(this)));
+        if (Math.abs(circleAcc) >= perStep && inflight.get() == 0) {
+            int dir = circleAcc > 0 ? 1 : -1;
+            circleAcc -= dir * perStep;
+            if (Prefs.invert(this)) dir = -dir;
+            swipe(0, dir, 0.10f * sh);
+        }
+        float cap = perStep * 4;
+        if (circleAcc > cap) circleAcc = cap;
+        if (circleAcc < -cap) circleAcc = -cap;
+    }
+
+    private void moveCursor(float dz) {        if (cursor == null) return;
         float speed = 1500f * Prefs.cursorSpeed(this) * (TICK_MS / 1000f);
         float dx = axisDelta(rx, dz) * speed;
         float dy = axisDelta(ry, dz) * speed;
@@ -492,6 +542,19 @@ public class PadMouseService extends AccessibilityService
         if (!Prefs.hscroll(this)) return false;
         if (inflight.get() > 0) return true;
         swipe(dir, 0, Math.min(0.6f, ratio) * sw);
+        return true;
+    }
+
+    /**
+     * 翻页：一条横跨屏幕中部的横划（离边缘远一点，避免触发系统返回手势）。
+     * dir = +1 下一页（手指往左），-1 上一页（手指往右）。
+     */
+    private boolean page(int dir) {
+        if (inflight.get() > 0) return true;
+        float cx = sw / 2f, cy = sh / 2f;
+        float half = sw * 0.29f;
+        int ms = Math.max(200, (int) Prefs.swipeMs(this));
+        doSwipe(cx + dir * half, cy, cx - dir * half, cy, ms);
         return true;
     }
 
