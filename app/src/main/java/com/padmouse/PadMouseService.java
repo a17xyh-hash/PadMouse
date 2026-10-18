@@ -169,7 +169,8 @@ public class PadMouseService extends AccessibilityService
         try {
             AccessibilityServiceInfo info = getServiceInfo();
             if (info == null) return;
-            if (rootMode) {
+            if (rootMode || !Prefs.enabled(this)) {
+                // 暂停/root 模式下不订阅摇杆，把摇杆还给游戏
                 info.setMotionEventSources(0);
             } else {
                 try {
@@ -179,8 +180,7 @@ public class PadMouseService extends AccessibilityService
                 }
             }
             setServiceInfo(info);
-            if (rootMode) Dbg.note("Root 模式：不订阅无障碍的摇杆事件");
-        } catch (Throwable t) {
+            if (rootMode) Dbg.note("Root 模式：不订阅无障碍的摇杆事件");        } catch (Throwable t) {
             Dbg.note("摇杆订阅失败：" + t + "（可改用 Root 模式）");
         }
     }
@@ -584,7 +584,7 @@ public class PadMouseService extends AccessibilityService
     // ------------------------------------------------------------ 浮层
 
     private void refreshOverlays() {
-        boolean cm = Prefs.cursorMode(this);
+        boolean cm = Prefs.cursorMode(this) && Prefs.enabled(this);
         if (cursor != null) {
             if (cm) cursor.show();
             else cursor.hide();
@@ -666,6 +666,8 @@ public class PadMouseService extends AccessibilityService
                 } else if (Prefs.K_CURSOR_ON.equals(key)) {
                     refreshOverlays();
                 } else if (Prefs.K_ENABLED.equals(key)) {
+                    applyServiceInfo();     // 暂停时把摇杆还给游戏
+                    refreshOverlays();
                     showHint(Prefs.enabled(PadMouseService.this) ? "已接管手柄" : "已暂停接管");
                 }
             }
