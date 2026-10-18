@@ -45,6 +45,7 @@ public class MainActivity extends Activity {
     private final Handler ui = new Handler(Looper.getMainLooper());
 
     private TextView tabAccess, tabRoot, modeDesc;
+    private TextView tabDpadPage, tabDpadScroll, tabStickCircle, tabStickPush;
     private TextView stService, stRoot, stPad, stStick, dbgTv;
     private Switch swOn, swInv, swHs, swCursor, swHint;
     private boolean syncing = false;
@@ -65,6 +66,7 @@ public class MainActivity extends Activity {
         modeCard(col);
         statusCard(col);
         switchCard(col);
+        opCard(col);
         feelCard(col);
         testCard(col);
         mapCard(col);
@@ -182,8 +184,66 @@ public class MainActivity extends Activity {
                 true, Prefs.K_HINT);
     }
 
-    private void feelCard(LinearLayout col) {
+    private void opCard(LinearLayout col) {
         LinearLayout card = card(col);
+        card.addView(tv("操作方式", 12f, DIM, true));
+
+        TextView[] d = seg(card, "十字键",
+                Prefs.K_DPAD_MODE,
+                new String[]{Prefs.DPAD_PAGE, Prefs.DPAD_SCROLL},
+                new String[]{"左右翻页", "上下滚动"});
+        tabDpadPage = d[0];
+        tabDpadScroll = d[1];
+
+        TextView[] s = seg(card, "左摇杆",
+                Prefs.K_STICK_MODE,
+                new String[]{Prefs.STICK_CIRCLE, Prefs.STICK_PUSH},
+                new String[]{"画圈当滚轮", "推杆滚屏"});
+        tabStickCircle = s[0];
+        tabStickPush = s[1];
+
+        TextView tip = tv("画圈：顺时针往下、逆时针往上（转 60° 滚一格，可配合「摇杆速度」调灵敏度）。\n"
+                + "推杆：跟以前一样，推得越深滚得越快。", 10.5f, HINT, false);
+        tip.setPadding(0, dp(12), 0, 0);
+        tip.setLineSpacing(dp(3), 1f);
+        card.addView(tip);
+    }
+
+    /** 两段式选择器：点一下写 pref，刷新时高亮当前项。 */
+    private TextView[] seg(LinearLayout card, String title, final String key,
+                           String[] values, String[] labels) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(0, dp(14), 0, 0);
+        box.addView(tv(title, 13f, TXT, false));
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setPadding(0, dp(8), 0, 0);
+
+        TextView[] out = new TextView[values.length];
+        for (int i = 0; i < values.length; i++) {
+            final String v = values[i];
+            TextView t = tab(labels[i]);
+            t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
+            t.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View x) {
+                    Prefs.setS(MainActivity.this, key, v);
+                    refresh();
+                }
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(36), 1f);
+            if (i > 0) lp.leftMargin = dp(8);
+            row.addView(t, lp);
+            out[i] = t;
+        }
+        box.addView(row);
+        card.addView(box);
+        return out;
+    }
+
+    private void feelCard(LinearLayout col) {        LinearLayout card = card(col);
         card.addView(tv("手感", 12f, DIM, true));
         addSlider(card, "滚动步长", Prefs.K_STEP, 0.05f, 0.60f, 0.25f, "pct");
         addSlider(card, "滑动时长", Prefs.K_SWIPE, 80f, 400f, 260f, "ms");
@@ -232,17 +292,18 @@ public class MainActivity extends Activity {
         LinearLayout card = card(col);
         card.addView(tv("默认映射", 12f, DIM, true));
         TextView t = tv(
-                "十字键 ↑ / ↓      滚动 一屏的 25%\n"
-                        + "十字键 ← / →      左右横滚\n"
+                "十字键 ← / ↑      上一页（翻页模式）\n"
+                        + "十字键 → / ↓      下一页（翻页模式）\n"
+                        + "十字键（滚动模式） 上下滚动 / 左右横滚\n"
                         + "L1 / R1            大步滚动（约 2 倍）\n"
                         + "L2 / R2 / L3 / R3  大步滚动\n"
-                        + "左摇杆             顺滑滚动（按住不动就停）\n"
+                        + "左摇杆             画圈 = 滚轮：顺时针往下、逆时针往上\n"
                         + "右摇杆             移动光标（光标模式）\n"
                         + "A                  点击（光标模式）\n"
                         + "X                  长按（光标模式）\n"
                         + "B                  返回（光标模式）\n"
                         + "START              开关光标模式\n"
-                        + "SELECT             暂停 / 恢复接管", 11.5f, DIM, false);
+                        + "SELECT             暂停 / 恢复接管（暂停时摇杆还给游戏）", 11.5f, DIM, false);
         t.setPadding(0, dp(12), 0, 0);
         t.setLineSpacing(dp(4), 1f);
         card.addView(t);
@@ -302,6 +363,10 @@ public class MainActivity extends Activity {
 
         styleTab(tabAccess, !rootMode);
         styleTab(tabRoot, rootMode);
+        styleTab(tabDpadPage, Prefs.DPAD_PAGE.equals(Prefs.dpadMode(this)));
+        styleTab(tabDpadScroll, Prefs.DPAD_SCROLL.equals(Prefs.dpadMode(this)));
+        styleTab(tabStickCircle, Prefs.STICK_CIRCLE.equals(Prefs.stickMode(this)));
+        styleTab(tabStickPush, Prefs.STICK_PUSH.equals(Prefs.stickMode(this)));
         modeDesc.setText(rootMode ? DESC_ROOT : DESC_ACCESS);
     }
 
