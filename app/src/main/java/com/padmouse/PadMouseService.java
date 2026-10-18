@@ -55,6 +55,8 @@ public class PadMouseService extends AccessibilityService
 
     private RootShell shell;
     private RootPad rootPad;
+    private int rootFails;
+    private boolean rootReadOk;
 
     private int sw = 1080, sh = 1920;
 
@@ -202,6 +204,9 @@ public class PadMouseService extends AccessibilityService
 
     private void startRoot() {
         if (rootPad != null) return;
+        rootFails = 0;
+        rootReadOk = false;
+        Dbg.rootText = "—";
         Dbg.padText = "root: 正在寻找手柄…";
         rootPad = new RootPad(new RootPad.Listener() {
             @Override
@@ -215,9 +220,20 @@ public class PadMouseService extends AccessibilityService
             }
 
             @Override
-            public void onPadStatus(boolean ok, String detail) {
-                Dbg.padText = (ok ? "" : "⚠ ") + detail;
-                if (!ok) Dbg.note(detail);
+            public void onPadStatus(int level, String detail) {
+                Dbg.padText = (level == 2 ? "⚠ " : "") + detail;
+                if (level == 0) {
+                    rootFails = 0;
+                    rootReadOk = true;
+                    return;
+                }
+                if (level == 1) {
+                    rootFails = 0;
+                    return;
+                }
+                Dbg.note(detail);
+                rootFails++;
+                if (rootFails >= 2 && !rootReadOk) fallbackToAccess("读手柄失败：" + detail);
             }
         });
         rootPad.start();
@@ -228,13 +244,41 @@ public class PadMouseService extends AccessibilityService
             Thread t = new Thread(new Runnable() {
                 @Override
                 public void run() {
-                    boolean ok = s.open();
-                    Dbg.note(ok ? "root 注入通道就绪（input）" : "root 注入不可用：" + s.error());
+                    for (int i = 0; i < 2; i++) {
+                        boolean ok = s.open(30000);      // 给授权弹窗留足时间
+                        if (ok) {
+                            Dbg.rootText = "注入通道 " + s.suPath();
+                            Dbg.note("root 注入通道就绪：" + s.suPath());
+                            return;
+                        }
+                        Dbg.rootText = "授权失败：" + s.error();
+                        Dbg.note("root 授权失败：" + s.error());
+                        if (i < 1) {
+                            if (Prefs.mode(PadMouseService.this).equals(Prefs.MODE_ROOT)) {
+                                showHint("等待 root 授权：请在 SukiSU 里点「允许」");
+                            }
+                            try {
+                                Thread.sleep(8000);
+                            } catch (Throwable ignored) {
+                            }
+                        }
+                    }
+                    if (!rootReadOk) fallbackToAccess("root 不可用：" + s.error());
+                    else Dbg.note("root 注入不可用，改用无障碍手势派发");
                 }
             }, "pm-su-open");
             t.setDaemon(true);
             t.start();
         }
+    }
+
+    /** root 读不到/拿不到授权时，自动回到免 root 的无障碍模式，别让手柄直接失灵。 */
+    private void fallbackToAccess(String reason) {
+        if (!Prefs.mode(this).equals(Prefs.MODE_ROOT)) return;
+        Dbg.note(reason + " → 已切回无障碍模式");
+        Dbg.rootText = reason;
+        Prefs.setS(this, Prefs.K_MODE, Prefs.MODE_ACCESS);
+        showHint("Root 不可用，已切回无障碍模式");
     }
 
     private void stopRoot() {
@@ -306,13 +350,14 @@ public class PadMouseService extends AccessibilityService
 
         switch (code) {
             case KeyEvent.KEYCODE_DPAD_UP:
-                return pageMode ? page(-1) : scrollV(inv ? 1 : -1, step);
+                return scrollV(inv ? 1 : -1, step);
             case KeyEvent.KEYCODE_DPAD_DOWN:
-                return pageMode ? page(1) : scrollV(inv ? -1 : 1, step);
+                return scrollV(inv ? -1 : 1, step);
             case KeyEvent.KEYCODE_DPAD_LEFT:
-                return pageMode ? page(-1) : scrollH(inv ? 1 : -1, step);
+                // 翻页：默认"按左就往左滑"，手指方向和按键方向一致
+                return pageMode ? page(pageDirFor(-1)) : scrollH(inv ? 1 : -1, step);
             case KeyEvent.KEYCODE_DPAD_RIGHT:
-                return pageMode ? page(1) : scrollH(inv ? -1 : 1, step);
+                return pageMode ? page(pageDirFor(1)) : scrollH(inv ? -1 : 1, step);
 
             case KeyEvent.KEYCODE_BUTTON_L1:
             case KeyEvent.KEYCODE_BUTTON_L2:
@@ -532,30 +577,82 @@ public class PadMouseService extends AccessibilityService
 
     // ------------------------------------------------------------ 滚动
 
-    private boolean scrollV(int dir, float ratio) {
-        if (inflight.get() > 0) return true;
-        swipe(0, dir, Math.min(0.9f, ratio) * sh);
+    private boolean scrollV(final int dir, final float ratio) {
+        keyAction(new Runnable() {
+            @Override
+            public void run() {
+                swipe(0, dir, Math.min(0.9f, ratio) * sh);
+            }
+        });
         return true;
     }
 
-    private boolean scrollH(int dir, float ratio) {
+    private boolean scrollH(final int dir, final float ratio) {
         if (!Prefs.hscroll(this)) return false;
-        if (inflight.get() > 0) return true;
-        swipe(dir, 0, Math.min(0.6f, ratio) * sw);
+        keyAction(new Runnable() {
+            @Override
+            public void run() {
+                swipe(dir, 0, Math.min(0.6f, ratio) * sw);
+            }
+        });
         return true;
     }
 
     /**
-     * 翻页：一条横跨屏幕中部的横划（离边缘远一点，避免触发系统返回手势）。
-     * dir = +1 下一页（手指往左），-1 上一页（手指往右）。
+     * 按键动作排队：手势还在跑的时候按新的键不要直接丢掉，
+     * 等上一条手势结束（最多等几百毫秒）再补上，按一下就一定有一次。
      */
-    private boolean page(int dir) {
-        if (inflight.get() > 0) return true;
-        float cx = sw / 2f, cy = sh / 2f;
-        float half = sw * 0.29f;
-        int ms = Math.max(200, (int) Prefs.swipeMs(this));
-        doSwipe(cx + dir * half, cy, cx - dir * half, cy, ms);
+    private void keyAction(final Runnable r) {
+        if (inflight.get() == 0) {
+            r.run();
+            return;
+        }
+        pendingAction = r;
+        h.removeCallbacks(flushPending);
+        h.postDelayed(flushPending, 60);
+    }
+
+    private Runnable pendingAction;
+    private final Runnable flushPending = new Runnable() {
+        @Override
+        public void run() {
+            if (pendingAction == null) return;
+            if (inflight.get() > 0) {
+                h.postDelayed(this, 60);
+                return;
+            }
+            Runnable r = pendingAction;
+            pendingAction = null;
+            r.run();
+        }
+    };
+
+    /**
+     * 翻页：一条横跨屏幕中部的横划（离边缘远一点，避免触发系统返回手势）。
+     *
+     * @param fingerDir +1 = 手指往右滑，-1 = 手指往左滑
+     */
+    private boolean page(final float fingerDir) {
+        keyAction(new Runnable() {
+            @Override
+            public void run() {
+                float cx = sw / 2f, cy = sh / 2f;
+                float half = sw * 0.36f;      // 0.14W ↔ 0.86W，比之前更宽，翻页更容易被识别
+                int ms = Math.max(200, (int) Prefs.swipeMs(PadMouseService.this));
+                doSwipe(cx - fingerDir * half, cy, cx + fingerDir * half, cy, ms);
+            }
+        });
         return true;
+    }
+
+    /** 十字键方向 -> 手指滑动方向。 */
+    private float pageDirFor(int keyDir) {
+        // keyDir: -1 = 左键, +1 = 右键
+        if (Prefs.PAGE_DIR_NAV.equals(Prefs.pageDir(this))) {
+            // 导航语义：左键 = 上一页（手指往右），右键 = 下一页（手指往左）
+            return -keyDir;
+        }
+        return keyDir;      // 默认：按左就往左滑
     }
 
     /**
@@ -670,7 +767,16 @@ public class PadMouseService extends AccessibilityService
         }
     }
 
-    private void showHint(String s) {
+    private void showHint(final String s) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            h.post(new Runnable() {
+                @Override
+                public void run() {
+                    showHint(s);
+                }
+            });
+            return;
+        }
         if (!Prefs.b(this, Prefs.K_HINT, true) || wm == null) return;
         try {
             if (hintView == null) {
