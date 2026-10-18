@@ -1,0 +1,11 @@
+# 构建产物
+build/
+*.apk
+*.idsig
+*.keystore
+local.properties
+.gradle/
+.gradle-home/
+.idea/
+*.iml
+.DS_Store
