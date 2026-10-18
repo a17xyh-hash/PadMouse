@@ -628,7 +628,8 @@ public class PadMouseService extends AccessibilityService
     };
 
     /**
-     * 翻页：一条横跨屏幕中部的横划（离边缘远一点，避免触发系统返回手势）。
+     * 翻页：就是一条最普通的手指滑动——屏幕正中间按下，横着平移，抬起。
+     * 距离由「翻页距离」控制（默认 30% 屏宽，左右对称展开），时长取「滑动时长」。
      *
      * @param fingerDir +1 = 手指往右滑，-1 = 手指往左滑
      */
@@ -636,13 +637,27 @@ public class PadMouseService extends AccessibilityService
         keyAction(new Runnable() {
             @Override
             public void run() {
-                float cx = sw / 2f, cy = sh / 2f;
-                float half = sw * 0.36f;      // 0.14W ↔ 0.86W，比之前更宽，翻页更容易被识别
-                int ms = Math.max(200, (int) Prefs.swipeMs(PadMouseService.this));
-                doSwipe(cx - fingerDir * half, cy, cx + fingerDir * half, cy, ms);
+                dispatchPage(fingerDir);
             }
         });
         return true;
+    }
+
+    private void dispatchPage(float fingerDir) {
+        float cx = sw / 2f, cy = sh / 2f;
+        float half = Math.max(0.06f, Math.min(0.42f, Prefs.pageTravel(PadMouseService.this) / 2f)) * sw;
+        int ms = Math.max(120, (int) Prefs.swipeMs(PadMouseService.this));
+        // 起止点都在屏幕内：以中心为轴对称展开
+        float x1 = cx - fingerDir * half;
+        float x2 = cx + fingerDir * half;
+        // 插几个中间点，避免某些 ROM 把两点直线当成 fling
+        Path p = new Path();
+        p.moveTo(x1, cy);
+        for (int i = 1; i <= 6; i++) {
+            float t = i / 6f;
+            p.lineTo(x1 + (x2 - x1) * t, cy);
+        }
+        doPath(p, x1, cy, x2, cy, ms);
     }
 
     /** 十字键方向 -> 手指滑动方向。 */
@@ -675,12 +690,15 @@ public class PadMouseService extends AccessibilityService
     }
 
     private void doSwipe(float x1, float y1, float x2, float y2, int ms) {
-        if (inflight.get() > 0) return;
-        ms = Math.max(20, ms);
-
         Path path = new Path();
         path.moveTo(x1, y1);
         if (Math.abs(x2 - x1) > 0.5f || Math.abs(y2 - y1) > 0.5f) path.lineTo(x2, y2);
+        doPath(path, x1, y1, x2, y2, ms);
+    }
+
+    private void doPath(Path path, float x1, float y1, float x2, float y2, int ms) {
+        if (inflight.get() > 0) return;
+        ms = Math.max(20, ms);
 
         GestureDescription gd = null;
         try {
@@ -739,6 +757,13 @@ public class PadMouseService extends AccessibilityService
         if (!Prefs.enabled(this)) Prefs.setB(this, Prefs.K_ENABLED, true);
         swipe(0, 1, Math.min(0.9f, Prefs.step(this)) * sh);
         showHint("测试：向下滚 " + Math.round(Prefs.step(this) * 100) + "% 屏");
+    }
+
+    /** 给界面的"测试左滑/右滑"按钮用，走的就是翻页同一条手势。 */
+    public void testPage(int fingerDir) {
+        if (!Prefs.enabled(this)) Prefs.setB(this, Prefs.K_ENABLED, true);
+        page(fingerDir);
+        showHint(fingerDir < 0 ? "测试：手指往左滑" : "测试：手指往右滑");
     }
 
     // ------------------------------------------------------------ 浮层
